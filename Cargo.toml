@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = "0.1.2"
+serde = "1.0.203"
+reqwest = "0.12.5"
+alloy = { version = "0.1.2", features = [
+    "signer-local",
+    "network",
+    "provider-http",
+    "rpc",
+    "rpc-types"
+]}
+tokio = { version = "1.38.0", features = ["full"] }
 
 [[example]]
 name = "sim_bundle"
