@@ -136,7 +136,9 @@ dependencies = [
  "eyre",
  "reqwest",
  "serde",
+ "serde_json",
  "tokio",
+ "tower",
 ]
 
 [[package]]

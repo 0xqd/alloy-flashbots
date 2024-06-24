@@ -18,7 +18,7 @@ impl<L, F, N, S> MEVProviderBuilderExt<L, F, N, S> for ProviderBuilder<L, F, N> 
     }
 }
 
-/// Extension trait for FillProvider.
+/// Extension trait for FillProvider to support MEV operations.
 #[async_trait::async_trait]
 pub trait MEVProviderExt<N: Network> {
     /// Build a bundle item from a transaction request.

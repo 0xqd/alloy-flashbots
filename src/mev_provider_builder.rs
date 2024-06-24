@@ -1,16 +1,19 @@
 use alloy::network::Network;
+use alloy::providers::{ProviderBuilder, ProviderLayer, RootProvider};
 use alloy::providers::fillers::TxFiller;
-use alloy::providers::{ProviderBuilder, ProviderLayer, ReqwestProvider};
 use alloy::rpc::client::ClientBuilder;
+use alloy::signers::Signer;
 use reqwest::Url;
+
+use crate::http::MEVHttpService;
+use crate::MEVHttpLayer;
 
 /// Wrapper around [`ProviderBuilder`] to add MEV endpoints.
 #[derive(Debug)]
 pub struct MEVProviderBuilder<L, F, N, S> {
     provider_builder: ProviderBuilder<L, F, N>,
 
-    mev_share_url: Option<Url>,
-    signer: Option<S>,
+    layer: MEVHttpLayer<S>,
 }
 
 impl<L, F, N, S> MEVProviderBuilder<L, F, N, S> {
@@ -18,32 +21,35 @@ impl<L, F, N, S> MEVProviderBuilder<L, F, N, S> {
     pub fn new(provider_builder: ProviderBuilder<L, F, N>) -> Self {
         Self {
             provider_builder,
-            signer: None,
-            mev_share_url: None,
+            layer: MEVHttpLayer::default(),
         }
     }
 
     /// Sets the MEV share URL.
     pub fn with_mev_share_url(mut self, mev_share_url: Url) -> Self {
-        self.mev_share_url = Some(mev_share_url);
+        self.layer.mev_share_url = Some(mev_share_url);
         self
     }
 
     /// Sets the signer.
     pub fn with_signer(mut self, signer: S) -> Self {
-        self.signer = Some(signer);
+        self.layer.signer = Some(signer);
         self
     }
 
     /// Build this provider with an Reqwest HTTP transport.
     pub fn on_http(self, url: Url) -> F::Provider
     where
-        L: ProviderLayer<ReqwestProvider<N>, alloy::transports::http::Http<reqwest::Client>, N>,
-        F: TxFiller<N>
-            + ProviderLayer<L::Provider, alloy::transports::http::Http<reqwest::Client>, N>,
+        L: ProviderLayer<
+            RootProvider<MEVHttpService<reqwest::Client, S>, N>,
+            MEVHttpService<reqwest::Client, S>,
+            N,
+        >,
+        F: TxFiller<N> + ProviderLayer<L::Provider, MEVHttpService<reqwest::Client, S>, N>,
+        S: Signer + Clone + Send + Sync,
         N: Network,
     {
-        let client = ClientBuilder::default().http(url);
+        let client = ClientBuilder::default().layer(self.layer).http(url);
         self.provider_builder.on_client(client)
     }
 }
