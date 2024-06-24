@@ -183,8 +183,8 @@ pub struct SimBundleResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SimBundleLogs {
     /// Logs for transactions in bundle.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub tx_logs: Vec<Log>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_logs: Option<Vec<Log>>,
     /// Logs for bundles in bundle.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_logs: Option<Vec<SimBundleLogs>>,

@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
     // build bundle request
     let bundle = SendBundleRequest {
         bundle_body: vec![built_bundle_item],
-        inclusion: Inclusion::at_block(block_number + 1),
+        inclusion: Inclusion::at_block(20163696),
         ..Default::default()
     };
 

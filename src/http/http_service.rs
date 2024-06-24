@@ -59,6 +59,8 @@ impl<S: Signer + Clone + Send + Sync + 'static> MEVHttpService<reqwest::Client, 
                 .await
                 .map_err(TransportErrorKind::custom)?;
 
+            dbg!(&resp);
+
             Ok(resp)
         })
     }
