@@ -1,0 +1,11 @@
+[package]
+name = "alloy-flashbots"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = "0.1.2"
+
+[[example]]
+name = "sim_bundle"
+path = "examples/sim_bundle.rs"
