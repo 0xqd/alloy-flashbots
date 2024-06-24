@@ -1,8 +1,9 @@
 use alloy::network::Network;
-use alloy::providers::{ProviderBuilder, ProviderLayer, RootProvider};
 use alloy::providers::fillers::TxFiller;
+use alloy::providers::{ProviderBuilder, ProviderLayer, RootProvider};
 use alloy::rpc::client::ClientBuilder;
 use alloy::signers::Signer;
+use alloy::transports::Transport;
 use reqwest::Url;
 
 use crate::http::MEVHttpService;
@@ -12,7 +13,6 @@ use crate::MEVHttpLayer;
 #[derive(Debug)]
 pub struct MEVProviderBuilder<L, F, N, S> {
     provider_builder: ProviderBuilder<L, F, N>,
-
     layer: MEVHttpLayer<S>,
 }
 
@@ -21,7 +21,7 @@ impl<L, F, N, S> MEVProviderBuilder<L, F, N, S> {
     pub fn new(provider_builder: ProviderBuilder<L, F, N>) -> Self {
         Self {
             provider_builder,
-            layer: MEVHttpLayer::default(),
+            layer: MEVHttpLayer::<S>::new(),
         }
     }
 
@@ -37,7 +37,7 @@ impl<L, F, N, S> MEVProviderBuilder<L, F, N, S> {
         self
     }
 
-    /// Build this provider with an Reqwest HTTP transport.
+    /// Build this provider with an reqwest HTTP transport.
     pub fn on_http(self, url: Url) -> F::Provider
     where
         L: ProviderLayer<
@@ -46,6 +46,7 @@ impl<L, F, N, S> MEVProviderBuilder<L, F, N, S> {
             N,
         >,
         F: TxFiller<N> + ProviderLayer<L::Provider, MEVHttpService<reqwest::Client, S>, N>,
+        MEVHttpService<reqwest::Client, S>: Transport + Clone,
         S: Signer + Clone + Send + Sync,
         N: Network,
     {

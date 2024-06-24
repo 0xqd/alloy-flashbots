@@ -16,11 +16,10 @@ pub struct MEVHttpService<T, S> {
     signer: S,
 }
 
-impl<T, S> MEVHttpService<T, S>
-where
-    S: Signer + Clone + Send + Sync + 'static,
-{
-    pub fn new(http: Http<T>, mev_share_url: Url, signer: S) -> Self {
+impl<T, S> MEVHttpService<T, S> {
+    pub fn new(http: Http<T>, mev_share_url: Url, signer: Option<S>) -> Self {
+        let signer = signer.expect("Signer cannot be none");
+
         Self {
             http,
             mev_share_url,
@@ -36,7 +35,8 @@ impl<S: Signer + Clone + Send + Sync + 'static> MEVHttpService<reqwest::Client, 
         Box::pin(async move {
             let body = serde_json::to_vec(&req).map_err(TransportError::ser_err)?;
 
-            let signature = this.signer
+            let signature = this
+                .signer
                 .sign_message(format!("{:?}", keccak256(&body)).as_bytes())
                 .await
                 .map_err(TransportErrorKind::custom)?;

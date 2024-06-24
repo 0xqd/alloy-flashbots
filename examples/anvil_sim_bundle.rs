@@ -6,7 +6,7 @@ use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use eyre::Result;
 
-use alloy_flashbots::rpc::mev::{Inclusion, SendBundleRequest};
+use alloy_flashbots::rpc::mev::{Inclusion, SendBundleRequest, SimBundleOverrides};
 use alloy_flashbots::{MEVProviderBuilderExt, MEVProviderExt};
 
 #[tokio::main]
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
         .wallet(wallet.clone())
         .with_mev()
         .with_signer(signer.clone())
-        .with_mev_share_url("http://relay.flashbots.net".parse().unwrap())
+        .with_mev_share_url("https://relay.flashbots.net".parse().unwrap())
         .on_http(rpc_url.clone());
 
     let block_number = provider.get_block_number().await.unwrap();
@@ -45,7 +45,9 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let resp = provider.simulate_bundle(bundle, Default::default()).await?;
+    let resp = provider
+        .simulate_bundle(bundle, SimBundleOverrides::default())
+        .await?;
     dbg!(&resp);
 
     // let sim = provider.simulate_bundle(vec![built_bundle_item]).await.unwrap();

@@ -5,7 +5,9 @@ use alloy::providers::{Provider, ProviderBuilder};
 use alloy::transports::{Transport, TransportErrorKind, TransportResult};
 
 use crate::mev_provider_builder::MEVProviderBuilder;
-use crate::rpc::mev::{BundleItem, SendBundleRequest, SendBundleResponse, SimBundleOverrides};
+use crate::rpc::mev::{
+    BundleItem, SendBundleRequest, SendBundleResponse, SimBundleOverrides, SimBundleResponse,
+};
 
 /// Extension for Provider Builder
 pub trait MEVProviderBuilderExt<L, F, N, S> {
@@ -36,7 +38,7 @@ pub trait MEVProviderExt<N: Network> {
         &self,
         bundle: SendBundleRequest,
         simulate_overrides: SimBundleOverrides,
-    ) -> TransportResult<SendBundleResponse>;
+    ) -> TransportResult<SimBundleResponse>;
 }
 
 #[async_trait::async_trait]
@@ -74,7 +76,7 @@ where
         &self,
         bundle: SendBundleRequest,
         simulate_overrides: SimBundleOverrides,
-    ) -> TransportResult<SendBundleResponse> {
+    ) -> TransportResult<SimBundleResponse> {
         self.client()
             .request("mev_simBundle", (bundle, simulate_overrides))
             .await
