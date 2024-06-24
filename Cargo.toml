@@ -4,17 +4,30 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+eyre = "0.6.12"
 serde = "1.0.203"
 reqwest = "0.12.5"
 alloy = { version = "0.1.2", features = [
-    "signer-local",
+    "json-rpc",
     "network",
+    "node-bindings",
     "provider-http",
+    "reqwest",
     "rpc",
-    "rpc-types"
+    "rpc-client",
+    "rpc-types",
+    "signer-local",
+    "signers",
+    "transport-http",
+    "transports",
 ]}
 tokio = { version = "1.38.0", features = ["full"] }
+async-trait = "0.1.80"
 
 [[example]]
 name = "sim_bundle"
 path = "examples/sim_bundle.rs"
+
+[[example]]
+name = "anvil_sim_bundle"
+path = "examples/anvil_sim_bundle.rs"
