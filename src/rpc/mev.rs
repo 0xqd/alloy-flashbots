@@ -1,10 +1,11 @@
+use alloy::primitives::U256;
+use alloy::rpc::types::BlockNumberOrTag;
 use alloy::{
-    primitives::{Address, Bytes, TxHash, B256, U64},
+    primitives::{Address, Bytes, TxHash, B256},
     rpc::types::eth::{BlockId, Log},
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use alloy::primitives::U256;
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A bundle of transactions to send to the matchmaker.
 ///
@@ -48,7 +49,10 @@ pub struct Inclusion {
 impl Inclusion {
     /// Creates a new inclusion with the given min block..
     pub const fn at_block(block: u64) -> Self {
-        Self { block, max_block: None }
+        Self {
+            block,
+            max_block: None,
+        }
     }
 
     /// Returns the block number of the first block the bundle is valid for.
@@ -408,7 +412,10 @@ impl SendBundleRequest {
     ) -> Self {
         Self {
             protocol_version,
-            inclusion: Inclusion { block: block_num, max_block },
+            inclusion: Inclusion {
+                block: block_num,
+                max_block,
+            },
             bundle_body,
             validity: None,
             privacy: None,
@@ -439,7 +446,10 @@ pub struct PrivateTransactionRequest {
     )]
     pub max_block_number: Option<u64>,
     /// Preferences for private transaction.
-    #[serde(default, skip_serializing_if = "PrivateTransactionPreferences::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "PrivateTransactionPreferences::is_empty"
+    )]
     pub preferences: PrivateTransactionPreferences,
 }
 
@@ -645,7 +655,11 @@ pub struct EthSendBundle {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reverting_tx_hashes: Vec<B256>,
     /// UUID that can be used to cancel/replace this bundle
-    #[serde(default, rename = "replacementUuid", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "replacementUuid",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub replacement_uuid: Option<String>,
 }
 
@@ -740,4 +754,37 @@ pub struct EthCallBundleTransactionResult {
     /// Contains the return data if the transaction reverted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revert: Option<Bytes>,
+}
+
+mod u256_numeric_string {
+    use alloy_primitives::U256;
+    use serde::{de, Deserialize, Serializer};
+    use std::str::FromStr;
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let val = serde_json::Value::deserialize(deserializer)?;
+        match val {
+            serde_json::Value::String(s) => {
+                if let Ok(val) = s.parse::<u128>() {
+                    return Ok(U256::from(val))
+                }
+                U256::from_str(&s).map_err(de::Error::custom)
+            }
+            serde_json::Value::Number(num) => {
+                num.as_u64().map(U256::from).ok_or_else(|| de::Error::custom("invalid u256"))
+            }
+            _ => Err(de::Error::custom("invalid u256")),
+        }
+    }
+
+    pub(crate) fn serialize<S>(val: &U256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let val: u128 = (*val).try_into().map_err(serde::ser::Error::custom)?;
+        serializer.serialize_str(&val.to_string())
+    }
 }
