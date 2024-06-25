@@ -128,7 +128,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloy-flashbots"
+name = "alloy-flashbots-rs"
 version = "0.1.0"
 dependencies = [
  "alloy",
