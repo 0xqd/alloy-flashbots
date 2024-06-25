@@ -4,6 +4,7 @@ use alloy::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use alloy::primitives::U256;
 
 /// A bundle of transactions to send to the matchmaker.
 ///
@@ -15,48 +16,51 @@ pub struct SendBundleRequest {
     #[serde(rename = "version")]
     pub protocol_version: ProtocolVersion,
     /// Data used by block builders to check if the bundle should be considered for inclusion.
+    #[serde(rename = "inclusion")]
     pub inclusion: Inclusion,
     /// The transactions to include in the bundle.
     #[serde(rename = "body")]
     pub bundle_body: Vec<BundleItem>,
     /// Requirements for the bundle to be included in the block.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "validity", skip_serializing_if = "Option::is_none")]
     pub validity: Option<Validity>,
     /// Preferences on what data should be shared about the bundle and its transactions
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "privacy", skip_serializing_if = "Option::is_none")]
     pub privacy: Option<Privacy>,
 }
 
-/// The version of the MEV-share API to use.
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
-pub enum ProtocolVersion {
-    #[default]
-    #[serde(rename = "beta-1")]
-    /// The beta-1 version of the API.
-    Beta1,
-    /// The 0.1 version of the API.
-    #[serde(rename = "v0.1")]
-    V0_1,
-}
-
 /// Data used by block builders to check if the bundle should be considered for inclusion.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Inclusion {
     /// The first block the bundle is valid for.
-    pub block: U64,
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub block: u64,
     /// The last block the bundle is valid for.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_block: Option<U64>,
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_block: Option<u64>,
 }
 
 impl Inclusion {
     /// Creates a new inclusion with the given min block..
-    pub fn at_block(block: u64) -> Self {
-        Self {
-            block: U64::from(block),
-            max_block: None,
-        }
+    pub const fn at_block(block: u64) -> Self {
+        Self { block, max_block: None }
+    }
+
+    /// Returns the block number of the first block the bundle is valid for.
+    #[inline]
+    pub const fn block_number(&self) -> u64 {
+        self.block
+    }
+
+    /// Returns the block number of the last block the bundle is valid for.
+    #[inline]
+    pub fn max_block_number(&self) -> Option<u64> {
+        self.max_block.as_ref().map(|b| *b)
     }
 }
 
@@ -96,23 +100,26 @@ pub struct Validity {
 
 /// Specifies the minimum percent of a given bundle's earnings to redistribute
 /// for it to be included in a builder's block.
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Refund {
     /// The index of the transaction in the bundle.
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
     pub body_idx: u64,
     /// The minimum percent of the bundle's earnings to redistribute.
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
     pub percent: u64,
 }
 
 /// Specifies what addresses should receive what percent of the overall refund for this bundle,
 /// if it is enveloped by another bundle (eg. a searcher backrun).
-#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RefundConfig {
     /// The address to refund.
     pub address: Address,
     /// The minimum percent of the bundle's earnings to redistribute.
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
     pub percent: u64,
 }
 
@@ -121,37 +128,233 @@ pub struct RefundConfig {
 #[serde(rename_all = "camelCase")]
 pub struct Privacy {
     /// Hints on what data should be shared about the bundle and its transactions
-    #[serde(skip_serializing_if = "HashSet::is_empty")]
-    pub hints: HashSet<PrivacyHint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hints: Option<PrivacyHint>,
     /// The addresses of the builders that should be allowed to see the bundle/transaction.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub builders: Vec<Address>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builders: Option<Vec<Address>>,
 }
 
 /// Hints on what data should be shared about the bundle and its transactions
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum PrivacyHint {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PrivacyHint {
     /// The calldata of the bundle's transactions should be shared.
-    Calldata,
+    pub calldata: bool,
     /// The address of the bundle's transactions should be shared.
-    ContractAddress,
+    pub contract_address: bool,
     /// The logs of the bundle's transactions should be shared.
-    Logs,
+    pub logs: bool,
     /// The function selector of the bundle's transactions should be shared.
-    FunctionSelector,
+    pub function_selector: bool,
     /// The hash of the bundle's transactions should be shared.
-    Hash,
+    pub hash: bool,
     /// The hash of the bundle should be shared.
-    TxHash,
+    pub tx_hash: bool,
+}
+
+impl PrivacyHint {
+    /// Sets the flag indicating inclusion of calldata and returns the modified `PrivacyHint`
+    /// instance.
+    pub const fn with_calldata(mut self) -> Self {
+        self.calldata = true;
+        self
+    }
+
+    /// Sets the flag indicating inclusion of contract address and returns the modified
+    /// `PrivacyHint` instance.
+    pub const fn with_contract_address(mut self) -> Self {
+        self.contract_address = true;
+        self
+    }
+
+    /// Sets the flag indicating inclusion of logs and returns the modified `PrivacyHint` instance.
+    pub const fn with_logs(mut self) -> Self {
+        self.logs = true;
+        self
+    }
+
+    /// Sets the flag indicating inclusion of function selector and returns the modified
+    /// `PrivacyHint` instance.
+    pub const fn with_function_selector(mut self) -> Self {
+        self.function_selector = true;
+        self
+    }
+
+    /// Sets the flag indicating inclusion of hash and returns the modified `PrivacyHint` instance.
+    pub const fn with_hash(mut self) -> Self {
+        self.hash = true;
+        self
+    }
+
+    /// Sets the flag indicating inclusion of transaction hash and returns the modified
+    /// `PrivacyHint` instance.
+    pub const fn with_tx_hash(mut self) -> Self {
+        self.tx_hash = true;
+        self
+    }
+
+    /// Checks if calldata inclusion flag is set.
+    pub const fn has_calldata(&self) -> bool {
+        self.calldata
+    }
+
+    /// Checks if contract address inclusion flag is set.
+    pub const fn has_contract_address(&self) -> bool {
+        self.contract_address
+    }
+
+    /// Checks if logs inclusion flag is set.
+    pub const fn has_logs(&self) -> bool {
+        self.logs
+    }
+
+    /// Checks if function selector inclusion flag is set.
+    pub const fn has_function_selector(&self) -> bool {
+        self.function_selector
+    }
+
+    /// Checks if hash inclusion flag is set.
+    pub const fn has_hash(&self) -> bool {
+        self.hash
+    }
+
+    /// Checks if transaction hash inclusion flag is set.
+    pub const fn has_tx_hash(&self) -> bool {
+        self.tx_hash
+    }
+
+    /// Calculates the number of hints set within the `PrivacyHint` instance.
+    const fn num_hints(&self) -> usize {
+        let mut num_hints = 0;
+        if self.calldata {
+            num_hints += 1;
+        }
+        if self.contract_address {
+            num_hints += 1;
+        }
+        if self.logs {
+            num_hints += 1;
+        }
+        if self.function_selector {
+            num_hints += 1;
+        }
+        if self.hash {
+            num_hints += 1;
+        }
+        if self.tx_hash {
+            num_hints += 1;
+        }
+        num_hints
+    }
+}
+
+impl Serialize for PrivacyHint {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.num_hints()))?;
+        if self.calldata {
+            seq.serialize_element("calldata")?;
+        }
+        if self.contract_address {
+            seq.serialize_element("contract_address")?;
+        }
+        if self.logs {
+            seq.serialize_element("logs")?;
+        }
+        if self.function_selector {
+            seq.serialize_element("function_selector")?;
+        }
+        if self.hash {
+            seq.serialize_element("hash")?;
+        }
+        if self.tx_hash {
+            seq.serialize_element("tx_hash")?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PrivacyHint {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hints = Vec::<String>::deserialize(deserializer)?;
+        let mut privacy_hint = Self::default();
+        for hint in hints {
+            match hint.as_str() {
+                "calldata" => privacy_hint.calldata = true,
+                "contract_address" => privacy_hint.contract_address = true,
+                "logs" => privacy_hint.logs = true,
+                "function_selector" => privacy_hint.function_selector = true,
+                "hash" => privacy_hint.hash = true,
+                "tx_hash" => privacy_hint.tx_hash = true,
+                _ => return Err(serde::de::Error::custom("invalid privacy hint")),
+            }
+        }
+        Ok(privacy_hint)
+    }
 }
 
 /// Response from the matchmaker after sending a bundle.
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SendBundleResponse {
     /// Hash of the bundle bodies.
     pub bundle_hash: B256,
+}
+
+/// The version of the MEV-share API to use.
+#[derive(Deserialize, Debug, Serialize, Clone, Default, PartialEq, Eq)]
+pub enum ProtocolVersion {
+    #[default]
+    #[serde(rename = "beta-1")]
+    /// The beta-1 version of the API.
+    Beta1,
+    /// The 0.1 version of the API.
+    #[serde(rename = "v0.1")]
+    V0_1,
+}
+
+/// Optional fields to override simulation state.
+#[derive(Deserialize, Debug, Serialize, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SimBundleOverrides {
+    /// Block used for simulation state. Defaults to latest block.
+    /// Block header data will be derived from parent block by default.
+    /// Specify other params to override the default values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_block: Option<BlockId>,
+    /// Block number used for simulation, defaults to parentBlock.number + 1
+    #[serde(default, with = "alloy_rpc_types::serde_helpers::quantity::opt")]
+    pub block_number: Option<u64>,
+    /// Coinbase used for simulation, defaults to parentBlock.coinbase
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coinbase: Option<Address>,
+    /// Timestamp used for simulation, defaults to parentBlock.timestamp + 12
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timestamp: Option<u64>,
+    /// Gas limit used for simulation, defaults to parentBlock.gasLimit
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub gas_limit: Option<u64>,
+    /// Base fee used for simulation, defaults to parentBlock.baseFeePerGas
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub base_fee: Option<u64>,
+    /// Timeout in seconds, defaults to 5
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timeout: Option<u64>,
 }
 
 /// Response from the matchmaker after sending a simulation request.
@@ -161,60 +364,380 @@ pub struct SimBundleResponse {
     /// Whether the simulation was successful.
     pub success: bool,
     /// Error message if the simulation failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// The block number of the simulated block.
-    pub state_block: U64,
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub state_block: u64,
     /// The gas price of the simulated block.
-    pub mev_gas_price: U64,
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub mev_gas_price: u64,
     /// The profit of the simulated block.
-    pub profit: U64,
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub profit: u64,
     /// The refundable value of the simulated block.
-    pub refundable_value: U64,
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub refundable_value: u64,
     /// The gas used by the simulated block.
-    pub gas_used: U64,
-    /// Logs returned by mev_simBundle.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub gas_used: u64,
+    /// Logs returned by `mev_simBundle`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logs: Option<Vec<SimBundleLogs>>,
 }
 
-/// Logs returned by mev_simBundle.
+/// Logs returned by `mev_simBundle`.
 #[derive(Deserialize, Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SimBundleLogs {
     /// Logs for transactions in bundle.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tx_logs: Option<Vec<Log>>,
     /// Logs for bundles in bundle.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle_logs: Option<Vec<SimBundleLogs>>,
 }
 
-/// Optional fields to override simulation state.
-#[derive(Debug, Copy, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+impl SendBundleRequest {
+    /// Create a new bundle request.
+    pub const fn new(
+        block_num: u64,
+        max_block: Option<u64>,
+        protocol_version: ProtocolVersion,
+        bundle_body: Vec<BundleItem>,
+    ) -> Self {
+        Self {
+            protocol_version,
+            inclusion: Inclusion { block: block_num, max_block },
+            bundle_body,
+            validity: None,
+            privacy: None,
+        }
+    }
+}
+
+/// Request for `eth_cancelBundle`
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct SimBundleOverrides {
-    /// Block used for simulation state. Defaults to latest block.
-    /// Block header data will be derived from parent block by default.
-    /// Specify other params to override the default values.
+pub struct CancelBundleRequest {
+    /// Bundle hash of the bundle to be canceled
+    pub bundle_hash: String,
+}
+
+/// Request for `eth_sendPrivateTransaction`
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivateTransactionRequest {
+    /// raw signed transaction
+    pub tx: Bytes,
+    /// Hex-encoded number string, optional. Highest block number in which the transaction should
+    /// be included.
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_block_number: Option<u64>,
+    /// Preferences for private transaction.
+    #[serde(default, skip_serializing_if = "PrivateTransactionPreferences::is_empty")]
+    pub preferences: PrivateTransactionPreferences,
+}
+
+/// Additional preferences for `eth_sendPrivateTransaction`
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq)]
+pub struct PrivateTransactionPreferences {
+    /// Requirements for the bundle to be included in the block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity: Option<Validity>,
+    /// Preferences on what data should be shared about the bundle and its transactions
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<Privacy>,
+}
+
+impl PrivateTransactionPreferences {
+    /// Returns true if the preferences are empty.
+    pub const fn is_empty(&self) -> bool {
+        self.validity.is_none() && self.privacy.is_none()
+    }
+}
+
+/// Request for `eth_cancelPrivateTransaction`
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelPrivateTransactionRequest {
+    /// Transaction hash of the transaction to be canceled
+    pub tx_hash: B256,
+}
+
+// TODO(@optimiz-r): Revisit after <https://github.com/flashbots/flashbots-docs/issues/424> is closed.
+/// Response for `flashbots_getBundleStatsV2` represents stats for a single bundle
+///
+/// Note: this is V2: <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#flashbots_getbundlestatsv2>
+///
+/// Timestamp format: "2022-10-06T21:36:06.322Z"
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub enum BundleStats {
+    /// The relayer has not yet seen the bundle.
+    #[default]
+    Unknown,
+    /// The relayer has seen the bundle, but has not simulated it yet.
+    Seen(StatsSeen),
+    /// The relayer has seen the bundle and has simulated it.
+    Simulated(StatsSimulated),
+}
+
+impl Serialize for BundleStats {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Unknown => serde_json::json!({"isSimulated": false}).serialize(serializer),
+            Self::Seen(stats) => stats.serialize(serializer),
+            Self::Simulated(stats) => stats.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BundleStats {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map = serde_json::Map::deserialize(deserializer)?;
+
+        if map.get("receivedAt").is_none() {
+            Ok(Self::Unknown)
+        } else if map["isSimulated"] == false {
+            StatsSeen::deserialize(serde_json::Value::Object(map))
+                .map(BundleStats::Seen)
+                .map_err(serde::de::Error::custom)
+        } else {
+            StatsSimulated::deserialize(serde_json::Value::Object(map))
+                .map(BundleStats::Simulated)
+                .map_err(serde::de::Error::custom)
+        }
+    }
+}
+
+/// Response for `flashbots_getBundleStatsV2` represents stats for a single bundle
+///
+/// Note: this is V2: <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#flashbots_getbundlestatsv2>
+///
+/// Timestamp format: "2022-10-06T21:36:06.322Z
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsSeen {
+    /// boolean representing if this searcher has a high enough reputation to be in the high
+    /// priority queue
+    pub is_high_priority: bool,
+    /// representing whether the bundle gets simulated. All other fields will be omitted except
+    /// simulated field if API didn't receive bundle
+    pub is_simulated: bool,
+    /// time at which the bundle API received the bundle
+    pub received_at: String,
+}
+
+/// Response for `flashbots_getBundleStatsV2` represents stats for a single bundle
+///
+/// Note: this is V2: <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#flashbots_getbundlestatsv2>
+///
+/// Timestamp format: "2022-10-06T21:36:06.322Z
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsSimulated {
+    /// boolean representing if this searcher has a high enough reputation to be in the high
+    /// priority queue
+    pub is_high_priority: bool,
+    /// representing whether the bundle gets simulated. All other fields will be omitted except
+    /// simulated field if API didn't receive bundle
+    pub is_simulated: bool,
+    /// time at which the bundle gets simulated
+    pub simulated_at: String,
+    /// time at which the bundle API received the bundle
+    pub received_at: String,
+    /// indicates time at which each builder selected the bundle to be included in the target
+    /// block
+    #[serde(default = "Vec::new")]
+    pub considered_by_builders_at: Vec<ConsideredByBuildersAt>,
+    /// indicates time at which each builder sealed a block containing the bundle
+    #[serde(default = "Vec::new")]
+    pub sealed_by_builders_at: Vec<SealedByBuildersAt>,
+}
+
+/// Represents information about when a bundle was considered by a builder.
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsideredByBuildersAt {
+    /// The public key of the builder.
+    pub pubkey: String,
+    /// The timestamp indicating when the bundle was considered by the builder.
+    pub timestamp: String,
+}
+
+/// Represents information about when a bundle was sealed by a builder.
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SealedByBuildersAt {
+    /// The public key of the builder.
+    pub pubkey: String,
+    /// The timestamp indicating when the bundle was sealed by the builder.
+    pub timestamp: String,
+}
+
+/// Response for `flashbots_getUserStatsV2` represents stats for a searcher.
+///
+/// Note: this is V2: <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#flashbots_getuserstatsv2>
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserStats {
+    /// Represents whether this searcher has a high enough reputation to be in the high priority
+    /// queue.
+    pub is_high_priority: bool,
+    /// The total amount paid to validators over all time.
+    #[serde(with = "u256_numeric_string")]
+    pub all_time_validator_payments: U256,
+    /// The total amount of gas simulated across all bundles submitted to Flashbots.
+    /// This is the actual gas used in simulations, not gas limit.
+    #[serde(with = "u256_numeric_string")]
+    pub all_time_gas_simulated: U256,
+    /// The total amount paid to validators the last 7 days.
+    #[serde(with = "u256_numeric_string")]
+    pub last_7d_validator_payments: U256,
+    /// The total amount of gas simulated across all bundles submitted to Flashbots in the last 7
+    /// days. This is the actual gas used in simulations, not gas limit.
+    #[serde(with = "u256_numeric_string")]
+    pub last_7d_gas_simulated: U256,
+    /// The total amount paid to validators the last day.
+    #[serde(with = "u256_numeric_string")]
+    pub last_1d_validator_payments: U256,
+    /// The total amount of gas simulated across all bundles submitted to Flashbots in the last
+    /// day. This is the actual gas used in simulations, not gas limit.
+    #[serde(with = "u256_numeric_string")]
+    pub last_1d_gas_simulated: U256,
+}
+
+/// Bundle of transactions for `eth_sendBundle`
+///
+/// Note: this is for `eth_sendBundle` and not `mev_sendBundle`
+///
+/// <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#eth_sendbundle>
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthSendBundle {
+    /// A list of hex-encoded signed transactions
+    pub txs: Vec<Bytes>,
+    /// hex-encoded block number for which this bundle is valid
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub block_number: u64,
+    /// unix timestamp when this bundle becomes active
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub min_timestamp: Option<u64>,
+    /// unix timestamp how long this bundle stays valid
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_timestamp: Option<u64>,
+    /// list of hashes of possibly reverting txs
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reverting_tx_hashes: Vec<B256>,
+    /// UUID that can be used to cancel/replace this bundle
+    #[serde(default, rename = "replacementUuid", skip_serializing_if = "Option::is_none")]
+    pub replacement_uuid: Option<String>,
+}
+
+/// Response from the matchmaker after sending a bundle.
+#[derive(Deserialize, Debug, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EthBundleHash {
+    /// Hash of the bundle bodies.
+    pub bundle_hash: B256,
+}
+
+/// Bundle of transactions for `eth_callBundle`
+///
+/// <https://docs.flashbots.net/flashbots-auction/searchers/advanced/rpc-endpoint#eth_callBundle>
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthCallBundle {
+    /// A list of hex-encoded signed transactions
+    pub txs: Vec<Bytes>,
+    /// hex encoded block number for which this bundle is valid on
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub block_number: u64,
+    /// Either a hex encoded number or a block tag for which state to base this simulation on
+    pub state_block_number: BlockNumberOrTag,
+    /// the timestamp to use for this bundle simulation, in seconds since the unix epoch
+    #[serde(
+        default,
+        with = "alloy_rpc_types::serde_helpers::quantity::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timestamp: Option<u64>,
+}
+
+/// Response for `eth_callBundle`
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EthCallBundleResponse {
+    /// The hash of the bundle bodies.
+    pub bundle_hash: B256,
+    /// The gas price of the entire bundle
+    #[serde(with = "u256_numeric_string")]
+    pub bundle_gas_price: U256,
+    /// The difference in Ether sent to the coinbase after all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub coinbase_diff: U256,
+    /// The total amount of Ether sent to the coinbase after all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub eth_sent_to_coinbase: U256,
+    /// The total gas fees paid for all transactions in the bundle
+    #[serde(with = "u256_numeric_string")]
+    pub gas_fees: U256,
+    /// Results of individual transactions within the bundle
+    pub results: Vec<EthCallBundleTransactionResult>,
+    /// The block number used as a base for this simulation
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub state_block_number: u64,
+    /// The total gas used by all transactions in the bundle
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub total_gas_used: u64,
+}
+
+/// Result of a single transaction in a bundle for `eth_callBundle`
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EthCallBundleTransactionResult {
+    /// The difference in Ether sent to the coinbase after the transaction
+    #[serde(with = "u256_numeric_string")]
+    pub coinbase_diff: U256,
+    /// The amount of Ether sent to the coinbase after the transaction
+    #[serde(with = "u256_numeric_string")]
+    pub eth_sent_to_coinbase: U256,
+    /// The address from which the transaction originated
+    pub from_address: Address,
+    /// The gas fees paid for the transaction
+    #[serde(with = "u256_numeric_string")]
+    pub gas_fees: U256,
+    /// The gas price used for the transaction
+    #[serde(with = "u256_numeric_string")]
+    pub gas_price: U256,
+    /// The amount of gas used by the transaction
+    #[serde(with = "alloy_rpc_types::serde_helpers::quantity")]
+    pub gas_used: u64,
+    /// The address to which the transaction is sent (optional)
+    pub to_address: Option<Address>,
+    /// The transaction hash
+    pub tx_hash: B256,
+    /// Contains the return data if the transaction succeeded
+    ///
+    /// Note: this is mutually exclusive with `revert`
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_block: Option<BlockId>,
-    /// Block number used for simulation, defaults to parentBlock.number + 1
+    pub value: Option<Bytes>,
+    /// Contains the return data if the transaction reverted
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<U64>,
-    /// Coinbase used for simulation, defaults to parentBlock.coinbase
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub coinbase: Option<Address>,
-    /// Timestamp used for simulation, defaults to parentBlock.timestamp + 12
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<U64>,
-    /// Gas limit used for simulation, defaults to parentBlock.gasLimit
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gas_limit: Option<U64>,
-    /// Base fee used for simulation, defaults to parentBlock.baseFeePerGas
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_fee: Option<U64>,
-    /// Timeout in seconds, defaults to 5
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<U64>,
+    pub revert: Option<Bytes>,
 }
