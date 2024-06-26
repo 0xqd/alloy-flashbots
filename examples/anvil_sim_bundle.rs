@@ -6,8 +6,8 @@ use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
 use eyre::Result;
 
-use alloy_flashbots::rpc::mev::{Inclusion, SendBundleRequest, SimBundleOverrides};
-use alloy_flashbots::{MEVProviderBuilderExt, MEVProviderExt};
+use alloy_flashbots_rs::rpc::mev::{Inclusion, SendBundleRequest, SimBundleOverrides};
+use alloy_flashbots_rs::{MEVProviderBuilderExt, MEVProviderExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
